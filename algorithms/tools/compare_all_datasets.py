@@ -36,12 +36,13 @@ from algorithms.functions.gst_iaekf import GSTIAEKF
 RUN_MODELS = None
 
 # 选择要对比的数据集 (设置为 None 对比所有数据集)
-# 可选数据集:
-#   - "25C_DST_80SOC.csv", "25C_DST_50SOC.csv"
-#   - "25C_FUDS_80SOC.csv", "25C_FUDS_50SOC.csv"
-#   - "25C_US06_80SOC.csv", "25C_US06_50SOC.csv"
-#   - "25C_BBDST_80SOC.csv", "25C_BBDST_50SOC.csv"
-RUN_DATASETS = None
+# 可以用字符串或列表:
+#   RUN_DATASETS = None                              # 所有数据集
+#   RUN_DATASETS = "25C_DST_50SOC.csv"              # 单个数据集
+#   RUN_DATASETS = ["25C_DST_50SOC.csv", "25C_FUDS_80SOC.csv"]  # 多个数据集
+# 可选: 25C_DST_80SOC, 25C_DST_50SOC, 25C_FUDS_80SOC, 25C_FUDS_50SOC,
+#       25C_US06_80SOC, 25C_US06_50SOC, 25C_BBDST_80SOC, 25C_BBDST_50SOC
+RUN_DATASETS = ["25C_DST_50SOC.csv", "25C_FUDS_50SOC.csv", "25C_US06_50SOC.csv", "25C_BBDST_50SOC.csv"]
 
 # SOC过滤范围 (%)
 SOC_MIN = 10.0
@@ -85,12 +86,13 @@ def calculate_metrics(soc_estimated: np.ndarray, soc_true: np.ndarray):
     rmse = np.sqrt(np.mean(error**2))
     mae = np.mean(np.abs(error))
     max_error = np.max(np.abs(error))
-    return {'rmse': rmse, 'mae': mae, 'max_error': max_error}
+    return {'rmse': rmse, 'mae': mae, 'max_error': max_error, 'error': error}
 
 
 def run_aekf(data: dict):
     """运行AEKF算法"""
-    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = data['soc_true'][0] / 100
+    initial_soc = 0.3
     aekf = AEKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -101,12 +103,15 @@ def run_aekf(data: dict):
     results = aekf.estimate_batch(
         data['voltage'], data['current'], data['soc_true'], initial_soc
     )
-    return calculate_metrics(results['SOC_percent'], data['soc_true'])
+    soc_est = results['SOC_percent']
+    metrics = calculate_metrics(soc_est, data['soc_true'])
+    return soc_est, metrics
 
 
 def run_ukf(data: dict):
     """运行UKF算法"""
-    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = data['soc_true'][0] / 100
+    initial_soc = 0.3
     ukf = UKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -116,12 +121,15 @@ def run_ukf(data: dict):
     results = ukf.estimate_batch(
         data['voltage'], data['current'], data['soc_true'], initial_soc
     )
-    return calculate_metrics(results['SOC_percent'], data['soc_true'])
+    soc_est = results['SOC_percent']
+    metrics = calculate_metrics(soc_est, data['soc_true'])
+    return soc_est, metrics
 
 
 def run_sr_ukf(data: dict):
     """运行SR-UKF算法"""
-    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = data['soc_true'][0] / 100
+    initial_soc = 0.3
     sr_ukf = RobustSRUKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -134,12 +142,15 @@ def run_sr_ukf(data: dict):
     results = sr_ukf.estimate_batch(
         data['voltage'], data['current'], data['soc_true'], initial_soc
     )
-    return calculate_metrics(results['SOC_percent'], data['soc_true'])
+    soc_est = results['SOC_percent']
+    metrics = calculate_metrics(soc_est, data['soc_true'])
+    return soc_est, metrics
 
 
 def run_gst_iaekf(data: dict):
     """运行GST-IAEKF算法"""
-    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = data['soc_true'][0] / 100
+    initial_soc = 0.3
     gst_iaekf = GSTIAEKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -154,11 +165,13 @@ def run_gst_iaekf(data: dict):
     results = gst_iaekf.estimate_batch(
         data['voltage'], data['current'], data['soc_true'], initial_soc
     )
-    return calculate_metrics(results['SOC_percent'], data['soc_true'])
+    soc_est = results['SOC_percent']
+    metrics = calculate_metrics(soc_est, data['soc_true'])
+    return soc_est, metrics
 
 
 def run_model(model_name: str, data: dict):
-    """运行指定模型"""
+    """运行指定模型，返回 (soc_estimated, metrics)"""
     runners = {
         'AEKF': run_aekf,
         'UKF': run_ukf,
@@ -166,6 +179,51 @@ def run_model(model_name: str, data: dict):
         'GST-IAEKF': run_gst_iaekf
     }
     return runners[model_name](data)
+
+
+def plot_soc_comparison(data: dict, model_results: dict, dataset_name: str, save_path: Path):
+    """绘制单个数据集的SOC对比图和误差图"""
+    time = data['time']
+    soc_true = data['soc_true']
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 10))
+
+    colors = {'AEKF': '#1f77b4', 'UKF': '#ff7f0e', 'SR-UKF': '#2ca02c', 'GST-IAEKF': '#d62728'}
+    linestyles = {'AEKF': '--', 'UKF': '-.', 'SR-UKF': ':', 'GST-IAEKF': '-'}
+
+    # 上图: SOC对比
+    axes[0].plot(time, soc_true, 'b-', linewidth=2, label='True SOC', alpha=0.8)
+    for model_name, (soc_est, metrics) in model_results.items():
+        axes[0].plot(time, soc_est,
+                     color=colors.get(model_name, 'gray'),
+                     linestyle=linestyles.get(model_name, '-'),
+                     linewidth=1.5,
+                     label=f'{model_name} (RMSE={metrics["rmse"]:.3f}%)')
+
+    axes[0].set_xlabel('Time (s)', fontsize=12)
+    axes[0].set_ylabel('SOC (%)', fontsize=12)
+    axes[0].set_title(f'SOC Estimation Comparison - {dataset_name}', fontsize=14)
+    axes[0].legend(loc='best', fontsize=10)
+    axes[0].grid(True, alpha=0.3)
+
+    # 下图: 误差对比
+    for model_name, (soc_est, metrics) in model_results.items():
+        axes[1].plot(time, metrics['error'],
+                     color=colors.get(model_name, 'gray'),
+                     linewidth=1.0, alpha=0.8,
+                     label=f'{model_name} (Max={metrics["max_error"]:.3f}%)')
+
+    axes[1].axhline(y=0, color='k', linestyle='--', linewidth=0.5)
+    axes[1].set_xlabel('Time (s)', fontsize=12)
+    axes[1].set_ylabel('SOC Error (%)', fontsize=12)
+    axes[1].set_title('Estimation Error Comparison', fontsize=14)
+    axes[1].legend(loc='best', fontsize=10)
+    axes[1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    print(f"    Saved: {save_path}")
+    plt.close()
 
 
 def plot_comparison_bar(all_results: dict, models: list, save_path: Path):
@@ -375,7 +433,13 @@ def main():
     """主函数"""
     # 确定要运行的模型和数据集
     models = RUN_MODELS if RUN_MODELS else ALL_MODELS
-    datasets = RUN_DATASETS if RUN_DATASETS else ALL_DATASETS
+    # 处理数据集配置 (支持 None, 字符串, 列表)
+    if RUN_DATASETS is None:
+        datasets = ALL_DATASETS
+    elif isinstance(RUN_DATASETS, str):
+        datasets = [RUN_DATASETS]  # 单个字符串转为列表
+    else:
+        datasets = RUN_DATASETS
 
     print("="*70)
     print("       SOC Estimation - All Datasets Comparison")
@@ -405,12 +469,19 @@ def main():
         print(f"  Data points: {len(data['time'])}")
 
         all_results[data_file] = {}
+        model_results = {}  # 存储完整结果用于绘图
 
         for model in models:
             print(f"    Running {model}...", end=" ")
-            metrics = run_model(model, data)
-            all_results[data_file][model] = metrics
+            soc_est, metrics = run_model(model, data)
+            all_results[data_file][model] = metrics  # 只存 metrics 用于汇总
+            model_results[model] = (soc_est, metrics)  # 存完整结果用于绘图
             print(f"RMSE={metrics['rmse']:.4f}%")
+
+        # 为每个数据集绘制 SOC 对比图和误差图
+        dataset_name = data_file.replace("25C_", "").replace(".csv", "")
+        plot_soc_comparison(data, model_results, dataset_name,
+                           save_dir / f"soc_comparison_{dataset_name}.png")
 
     if not all_results:
         print("Error: No datasets were processed!")
@@ -419,8 +490,8 @@ def main():
     # 打印汇总
     print_summary_table(all_results, models)
 
-    # 保存图表
-    print("\nSaving results...")
+    # 保存汇总图表
+    print("\nSaving summary results...")
     plot_comparison_bar(all_results, models, save_dir / "comparison_bar.png")
     plot_heatmap(all_results, models, save_dir / "comparison_heatmap.png")
     save_to_csv(all_results, models, save_dir / "comparison_results.csv")

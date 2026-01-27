@@ -40,7 +40,7 @@ class RobustSRUKF:
 
     def __init__(
         self,
-        initial_soc: float = 0.8,
+        initial_soc: float = 0.6,
         capacity_Ah: float = 2.0,
         sample_time: float = 1.0,
         process_noise: np.ndarray = None,

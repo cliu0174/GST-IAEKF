@@ -37,7 +37,7 @@ from algorithms.functions.gst_iaekf import GSTIAEKF
 #   RUN_MODELS = ["AEKF"]               # 只运行 AEKF
 #   RUN_MODELS = ["AEKF", "UKF"]        # 运行 AEKF 和 UKF
 #   RUN_MODELS = ["SR-UKF", "GST-IAEKF"] # 运行 SR-UKF 和 GST-IAEKF
-RUN_MODELS = None
+RUN_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF"]
 
 # 选择数据文件 (相对于 dataset/processed/ 目录)
 # 可用数据集:
@@ -97,7 +97,8 @@ def run_aekf(data: dict):
     print("Running AEKF...")
     print("="*50)
 
-    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = data['soc_true'][0] / 100
+    initial_soc = 0.9
     aekf = AEKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -124,7 +125,8 @@ def run_ukf(data: dict):
     print("Running UKF...")
     print("="*50)
 
-    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = data['soc_true'][0] / 100
+    initial_soc = 0.9
     ukf = UKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -150,7 +152,8 @@ def run_sr_ukf(data: dict):
     print("Running Robust SR-UKF...")
     print("="*50)
 
-    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = data['soc_true'][0] / 100
+    initial_soc = 0.9
     sr_ukf = RobustSRUKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -183,7 +186,8 @@ def run_gst_iaekf(data: dict):
     print("Running GST-IAEKF...")
     print("="*50)
 
-    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = data['soc_true'][0] / 100
+    initial_soc = 0.9
     gst_iaekf = GSTIAEKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
