@@ -1,13 +1,13 @@
 """
-Main script for SOC Estimation Algorithms Comparison
+Main script for SOC Estimation
 SOC估计算法主运行脚本
 
 运行方式:
     python main.py
 
 输出:
-    - 控制台显示各算法性能指标
-    - dataset/processed/ 目录下生成结果图
+    - 控制台显示算法性能指标
+    - results/graphs/{数据集名}/ 目录下生成结果图
 """
 
 import sys
@@ -26,18 +26,45 @@ from algorithms.functions.sr_ukf import RobustSRUKF
 from algorithms.functions.gst_iaekf import GSTIAEKF
 
 
+# ============================================================================
+#                           用户配置区域 (Configuration)
+# ============================================================================
+
+# 选择要运行的模型 (可选: "AEKF", "UKF", "SR-UKF", "GST-IAEKF")
+# 设置为 None 或 [] 运行所有模型，或指定列表运行特定模型
+# 示例:
+#   RUN_MODELS = None                    # 运行所有模型
+#   RUN_MODELS = ["AEKF"]               # 只运行 AEKF
+#   RUN_MODELS = ["AEKF", "UKF"]        # 运行 AEKF 和 UKF
+#   RUN_MODELS = ["SR-UKF", "GST-IAEKF"] # 运行 SR-UKF 和 GST-IAEKF
+RUN_MODELS = None
+
+# 选择数据文件 (相对于 dataset/processed/ 目录)
+# 可用数据集:
+#   - "25C_DST_80SOC.csv"    : DST工况, 80%初始SOC
+#   - "25C_DST_50SOC.csv"    : DST工况, 50%初始SOC
+#   - "25C_FUDS_80SOC.csv"   : FUDS工况, 80%初始SOC
+#   - "25C_FUDS_50SOC.csv"   : FUDS工况, 50%初始SOC
+#   - "25C_US06_80SOC.csv"   : US06工况, 80%初始SOC
+#   - "25C_US06_50SOC.csv"   : US06工况, 50%初始SOC
+#   - "25C_BBDST_80SOC.csv"  : BBDST工况, 80%初始SOC
+#   - "25C_BBDST_50SOC.csv"  : BBDST工况, 50%初始SOC
+DATA_FILE = "25C_DST_80SOC.csv"
+
+# SOC过滤范围 (%)
+SOC_MIN = 10.0
+SOC_MAX = 100.0
+
+# ============================================================================
+#                           配置区域结束
+# ============================================================================
+
+# 所有可用模型
+ALL_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF"]
+
+
 def load_data(data_path: Path, soc_min: float = 10.0, soc_max: float = 100.0):
-    """
-    加载并过滤数据
-
-    Args:
-        data_path: 数据文件路径
-        soc_min: 最小SOC阈值 (%)
-        soc_max: 最大SOC阈值 (%)
-
-    Returns:
-        过滤后的数据字典
-    """
+    """加载并过滤数据"""
     df = pd.read_csv(data_path)
 
     # 过滤SOC范围
@@ -164,8 +191,8 @@ def run_gst_iaekf(data: dict):
         use_online_param_id=True,
         enable_nis_gate=True,
         enable_strong_tracking=True,
-        enable_qr_adaptive=False,  # 禁用Q/R自适应（干净数据不需要）
-        lambda_max=3.0,            # 适度的强跟踪因子
+        enable_qr_adaptive=False,
+        lambda_max=3.0,
         rho=0.95
     )
 
@@ -185,118 +212,70 @@ def run_gst_iaekf(data: dict):
     return results, metrics
 
 
-def plot_comparison(data: dict, results_dict: dict, save_path: Path):
-    """绘制对比图"""
+def get_dataset_name(data_file: str) -> str:
+    """从数据文件名提取数据集名称"""
+    return Path(data_file).stem
+
+
+def get_models_to_run() -> list:
+    """获取要运行的模型列表"""
+    if RUN_MODELS is None or len(RUN_MODELS) == 0:
+        return ALL_MODELS.copy()
+
+    valid_models = []
+    for model in RUN_MODELS:
+        if model in ALL_MODELS:
+            valid_models.append(model)
+        else:
+            print(f"Warning: Unknown model '{model}', skipping...")
+
+    return valid_models
+
+
+def run_model(model_name: str, data: dict):
+    """根据模型名称运行对应算法"""
+    model_runners = {
+        'AEKF': run_aekf,
+        'UKF': run_ukf,
+        'SR-UKF': run_sr_ukf,
+        'GST-IAEKF': run_gst_iaekf
+    }
+
+    if model_name in model_runners:
+        return model_runners[model_name](data)
+    else:
+        raise ValueError(f"Unknown model: {model_name}")
+
+
+def plot_result(data: dict, model_name: str, results: dict, metrics: dict,
+                save_path: Path):
+    """绘制单个模型的结果图"""
     time = data['time']
     soc_true = data['soc_true']
 
-    fig, axes = plt.subplots(3, 1, figsize=(14, 12))
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8))
 
-    # SOC对比图（全局视图）
+    # SOC估计图
     axes[0].plot(time, soc_true, 'b-', linewidth=2, label='True SOC')
-
-    colors = {'AEKF': 'r', 'UKF': 'g', 'SR-UKF': 'm', 'GST-IAEKF': 'c'}
-    linestyles = {'AEKF': '--', 'UKF': '-.', 'SR-UKF': ':', 'GST-IAEKF': '-'}
-
-    for name, (results, metrics) in results_dict.items():
-        axes[0].plot(
-            time, results['SOC_percent'],
-            color=colors[name], linestyle=linestyles[name], linewidth=1.5,
-            label=f'{name} (RMSE={metrics["rmse"]:.3f}%)'
-        )
-
+    axes[0].plot(time, results['SOC_percent'], 'r--', linewidth=1.5,
+                 label=f'{model_name} (RMSE={metrics["rmse"]:.3f}%)')
     axes[0].set_xlabel('Time (s)', fontsize=12)
     axes[0].set_ylabel('SOC (%)', fontsize=12)
-    axes[0].set_title('SOC Estimation Comparison (80% → 10%)', fontsize=14)
+    axes[0].set_title(f'{model_name} SOC Estimation', fontsize=14)
     axes[0].legend(fontsize=10)
     axes[0].grid(True, alpha=0.3)
-    axes[0].set_ylim([5, 85])
 
-    # 误差对比图（关键差异所在）
-    for name, (results, metrics) in results_dict.items():
-        axes[1].plot(
-            time, metrics['error'],
-            color=colors[name], linewidth=1.0, alpha=0.9,
-            label=f'{name} (Max={metrics["max_error"]:.2f}%)'
-        )
-
+    # 误差图
+    axes[1].plot(time, metrics['error'], 'g-', linewidth=1.0)
     axes[1].axhline(y=0, color='k', linestyle='--', linewidth=0.5)
     axes[1].set_xlabel('Time (s)', fontsize=12)
     axes[1].set_ylabel('SOC Error (%)', fontsize=12)
-    axes[1].set_title('Estimation Error Comparison (Key Differences Here!)', fontsize=14)
-    axes[1].legend(fontsize=10)
+    axes[1].set_title(f'Estimation Error (Max={metrics["max_error"]:.3f}%)', fontsize=14)
     axes[1].grid(True, alpha=0.3)
-
-    # 误差绝对值累积分布（更直观展示差异）
-    for name, (results, metrics) in results_dict.items():
-        abs_error_sorted = np.sort(np.abs(metrics['error']))
-        cdf = np.arange(1, len(abs_error_sorted) + 1) / len(abs_error_sorted) * 100
-        axes[2].plot(abs_error_sorted, cdf, color=colors[name], linewidth=2,
-                     label=f'{name} (95%: {np.percentile(np.abs(metrics["error"]), 95):.2f}%)')
-
-    axes[2].set_xlabel('Absolute SOC Error (%)', fontsize=12)
-    axes[2].set_ylabel('Cumulative Percentage (%)', fontsize=12)
-    axes[2].set_title('Error CDF (Cumulative Distribution - Left is Better)', fontsize=14)
-    axes[2].legend(fontsize=10)
-    axes[2].grid(True, alpha=0.3)
-    axes[2].set_xlim([0, max(3.5, max(m['max_error'] for _, m in results_dict.values()) * 1.1)])
 
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
-    print(f"\nComparison plot saved to: {save_path}")
-    plt.close()
-
-
-def plot_sr_ukf_details(data: dict, results: dict, metrics: dict, save_path: Path):
-    """绘制SR-UKF详细结果"""
-    time = data['time']
-    soc_true = data['soc_true']
-
-    fig, axes = plt.subplots(4, 1, figsize=(14, 12))
-
-    # SOC估计
-    axes[0].plot(time, soc_true, 'b-', linewidth=1.5, label='True SOC')
-    axes[0].plot(time, results['SOC_percent'], 'r--', linewidth=1.5, label='SR-UKF Estimated')
-    axes[0].set_xlabel('Time (s)')
-    axes[0].set_ylabel('SOC (%)')
-    axes[0].set_title(f'Robust SR-UKF SOC Estimation (RMSE={metrics["rmse"]:.4f}%)')
-    axes[0].legend()
-    axes[0].grid(True, alpha=0.3)
-
-    # 误差
-    axes[1].plot(time, metrics['error'], 'g-', linewidth=0.8)
-    axes[1].axhline(y=0, color='k', linestyle='--', linewidth=0.5)
-    axes[1].set_xlabel('Time (s)')
-    axes[1].set_ylabel('SOC Error (%)')
-    axes[1].set_title('Estimation Error')
-    axes[1].grid(True, alpha=0.3)
-
-    # NIS和鲁棒权重
-    ax2_twin = axes[2].twinx()
-    axes[2].plot(time, results['NIS'], 'b-', linewidth=0.5, alpha=0.7, label='NIS')
-    axes[2].axhline(y=6.63, color='r', linestyle='--', linewidth=1, label='Threshold (6.63)')
-    axes[2].set_xlabel('Time (s)')
-    axes[2].set_ylabel('NIS', color='b')
-    axes[2].set_ylim([0, min(15, np.max(results['NIS']) * 1.1)])
-    axes[2].legend(loc='upper left')
-
-    ax2_twin.plot(time, results['robust_weight'], 'g-', linewidth=0.5, alpha=0.7)
-    ax2_twin.set_ylabel('Robust Weight', color='g')
-    ax2_twin.set_ylim([0, 1.1])
-
-    axes[2].set_title('NIS Gate and Robust Weight')
-    axes[2].grid(True, alpha=0.3)
-
-    # 自适应自由度
-    axes[3].plot(time, results['nu'], 'm-', linewidth=0.8)
-    axes[3].set_xlabel('Time (s)')
-    axes[3].set_ylabel('Student-t ν')
-    axes[3].set_title('Adaptive Degrees of Freedom')
-    axes[3].grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150)
-    print(f"SR-UKF details saved to: {save_path}")
+    print(f"  Plot saved to: {save_path}")
     plt.close()
 
 
@@ -313,60 +292,65 @@ def print_summary(results_dict: dict):
 
     print("-"*70)
 
-    # 找出最佳算法
-    best_rmse = min(results_dict.items(), key=lambda x: x[1][1]['rmse'])
-    best_max = min(results_dict.items(), key=lambda x: x[1][1]['max_error'])
+    if len(results_dict) > 1:
+        best_rmse = min(results_dict.items(), key=lambda x: x[1][1]['rmse'])
+        best_max = min(results_dict.items(), key=lambda x: x[1][1]['max_error'])
+        print(f"Best RMSE: {best_rmse[0]} ({best_rmse[1][1]['rmse']:.4f}%)")
+        print(f"Best Max Error: {best_max[0]} ({best_max[1][1]['max_error']:.4f}%)")
 
-    print(f"Best RMSE: {best_rmse[0]} ({best_rmse[1][1]['rmse']:.4f}%)")
-    print(f"Best Max Error: {best_max[0]} ({best_max[1][1]['max_error']:.4f}%)")
     print("="*70)
 
 
 def main():
     """主函数"""
+    models_to_run = get_models_to_run()
+    dataset_name = get_dataset_name(DATA_FILE)
+
     print("="*70)
-    print("       SOC Estimation Algorithms Comparison")
-    print("       AEKF vs UKF vs Robust SR-UKF")
+    print("       SOC Estimation Algorithms")
+    print("="*70)
+    print(f"  Dataset: {DATA_FILE}")
+    print(f"  Models:  {', '.join(models_to_run)}")
+    print(f"  SOC Range: {SOC_MIN}% ~ {SOC_MAX}%")
     print("="*70)
 
     # 路径设置
     base_path = Path(__file__).parent
-    data_path = base_path / "dataset" / "processed" / "25C_DST_80SOC.csv"
-    save_dir = base_path / "dataset" / "processed"
+    data_path = base_path / "dataset" / "processed" / DATA_FILE
+    save_dir = base_path / "results" / "graphs" / dataset_name
+
+    save_dir.mkdir(parents=True, exist_ok=True)
 
     if not data_path.exists():
         print(f"Error: Data file not found: {data_path}")
         print("Please run process_battery_data.py first.")
+        print("\nAvailable datasets:")
+        processed_dir = base_path / "dataset" / "processed"
+        if processed_dir.exists():
+            for f in processed_dir.glob("*.csv"):
+                print(f"  - {f.name}")
         return
 
-    # 加载数据 (SOC: 80% → 10%)
+    # 加载数据
     print(f"\nLoading data from: {data_path}")
-    data = load_data(data_path, soc_min=10.0, soc_max=100.0)
+    data = load_data(data_path, soc_min=SOC_MIN, soc_max=SOC_MAX)
 
-    # 运行各算法
+    # 运行选定的算法
     results_dict = {}
 
-    aekf_results, aekf_metrics = run_aekf(data)
-    results_dict['AEKF'] = (aekf_results, aekf_metrics)
+    for model_name in models_to_run:
+        results, metrics = run_model(model_name, data)
+        results_dict[model_name] = (results, metrics)
 
-    ukf_results, ukf_metrics = run_ukf(data)
-    results_dict['UKF'] = (ukf_results, ukf_metrics)
-
-    sr_ukf_results, sr_ukf_metrics = run_sr_ukf(data)
-    results_dict['SR-UKF'] = (sr_ukf_results, sr_ukf_metrics)
-
-    gst_iaekf_results, gst_iaekf_metrics = run_gst_iaekf(data)
-    results_dict['GST-IAEKF'] = (gst_iaekf_results, gst_iaekf_metrics)
-
-    # 绘制对比图
-    plot_comparison(data, results_dict, save_dir / "comparison_80_to_10.png")
-
-    # 绘制SR-UKF详细结果
-    plot_sr_ukf_details(data, sr_ukf_results, sr_ukf_metrics,
-                        save_dir / "SR_UKF_details_80_to_10.png")
+        # 保存结果图
+        model_filename = model_name.replace("-", "_")
+        plot_result(data, model_name, results, metrics,
+                    save_dir / f"{model_filename}_{dataset_name}.png")
 
     # 打印汇总
     print_summary(results_dict)
+
+    print(f"\n结果已保存到: {save_dir}")
 
 
 if __name__ == "__main__":
