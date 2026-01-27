@@ -328,7 +328,10 @@ class RobustSRUKF:
 
     def predict(self, current: float):
         """
-        预测步骤（平方根形式）
+        预测步骤（严格平方根形式）
+
+        使用QR分解直接传播平方根因子S，而非先算P再cholesky。
+        这是严格的SR-UKF实现，全流程保持平方根传播。
 
         Args:
             current: 电流 (A)
@@ -349,25 +352,55 @@ class RobustSRUKF:
         # SOC边界约束
         self.x[0] = np.clip(self.x[0], 0, 1)
 
-        # 计算预测协方差平方根 (直接方法，更稳健)
-        # 先计算完整的P矩阵，再做Cholesky分解
-        P = np.zeros((self.n, self.n))
-        for i in range(n_sigma):
+        # ============ 严格SR-UKF：使用QR分解直接传播S ============
+        # 构造用于QR分解的矩阵：
+        # A = [sqrt(Wc[1])*(χ_1 - x̄), ..., sqrt(Wc[2n])*(χ_2n - x̄), sqrt(Q)]^T
+        # 注意：第0个sigma点的权重Wc[0]可能为负，需要单独处理
+
+        # 先处理 i=1 到 2n 的sigma点（权重都是正的）
+        n_cols = 2 * self.n  # 不包括第0个点
+        A = np.zeros((n_cols + self.n, self.n))  # (2n + n) x n
+
+        for i in range(1, n_sigma):
             diff = sigma_points_pred[:, i] - self.x
-            P += self.Wc[i] * np.outer(diff, diff)
-        P += self.Q
+            A[i-1, :] = np.sqrt(np.abs(self.Wc[i])) * diff
 
-        # 确保对称正定
-        P = (P + P.T) / 2
-        min_eig = np.min(np.linalg.eigvalsh(P))
-        if min_eig < 1e-10:
-            P = P + (1e-10 - min_eig) * np.eye(self.n)
+        # 添加过程噪声的平方根
+        A[n_cols:, :] = self.sqrt_Q.T  # sqrt_Q是下三角，转置后每行是一个方向
 
+        # QR分解得到S（R的转置的下三角部分）
         try:
+            _, R = np.linalg.qr(A)
+            S_new = R.T  # 转为下三角形式
+
+            # 确保对角元素为正
+            for i in range(self.n):
+                if S_new[i, i] < 0:
+                    S_new[i, :] = -S_new[i, :]
+
+            # 处理第0个sigma点（Wc[0]可能为负）
+            diff_0 = sigma_points_pred[:, 0] - self.x
+            if self.Wc[0] >= 0:
+                # 正权重：cholupdate
+                S_new = self._cholupdate(S_new, np.sqrt(self.Wc[0]) * diff_0, +1)
+            else:
+                # 负权重：choldowndate
+                S_new = self._cholupdate(S_new, np.sqrt(-self.Wc[0]) * diff_0, -1)
+
+            self.S = S_new
+
+        except Exception:
+            # QR失败时回退到传统方法
+            P = np.zeros((self.n, self.n))
+            for i in range(n_sigma):
+                diff = sigma_points_pred[:, i] - self.x
+                P += self.Wc[i] * np.outer(diff, diff)
+            P += self.Q
+            P = (P + P.T) / 2
+            min_eig = np.min(np.linalg.eigvalsh(P))
+            if min_eig < 1e-10:
+                P = P + (1e-10 - min_eig) * np.eye(self.n)
             self.S = np.linalg.cholesky(P)
-        except np.linalg.LinAlgError:
-            # 如果Cholesky失败，添加更多正则化
-            self.S = np.linalg.cholesky(P + 1e-8 * np.eye(self.n))
 
         self.sigma_points_pred = sigma_points_pred
 

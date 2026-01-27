@@ -181,7 +181,8 @@ class AEKF:
         C = self.model.get_observation_jacobian(self.x, current)
 
         # 计算卡尔曼增益
-        S = C @ self.P @ C.T + self.R  # 新息协方差
+        S = C @ self.P @ C.T + self.R  # 新息协方差（预测阶段）
+        S_prior = S  # 保存预测阶段的S，用于后续Q自适应
         K = self.P @ C.T / S
 
         # 状态更新
@@ -190,9 +191,10 @@ class AEKF:
         # SOC边界约束
         self.x[0] = np.clip(self.x[0], 0, 1)
 
-        # 协方差更新
+        # 协方差更新 - 使用Joseph形式（数值稳定）
+        # P = (I - KC) @ P @ (I - KC)^T + K @ R @ K^T
         I_KC = np.eye(self.n_states) - np.outer(K, C)
-        self.P = I_KC @ self.P
+        self.P = I_KC @ self.P @ I_KC.T + np.outer(K, K) * self.R
 
         # 确保协方差矩阵对称和正定
         self.P = (self.P + self.P.T) / 2
@@ -201,9 +203,9 @@ class AEKF:
         if self.adaptive_Q:
             # 基于新息的自适应方法（使用指数加权平滑）
             alpha_Q = 0.98  # 平滑因子，避免Q剧烈变化
-            # 计算新息协方差的估计值
-            S = C @ self.P @ C.T + self.R
-            Q_innovation = np.outer(K, K) * S  # 使用新息协方差而非新息平方
+            # 使用预测阶段的S_prior（更新前），而非更新后的P重新计算
+            # 这样保持时序一致性：用预测时的统计量来调整Q
+            Q_innovation = np.outer(K, K) * S_prior  # 使用预测阶段的新息协方差
             self.Q = alpha_Q * self.Q + (1 - alpha_Q) * Q_innovation
             # 添加上下界约束，防止Q过大或过小导致发散
             self.Q = np.clip(self.Q, self.Q_init * 0.1, self.Q_init * 10)
