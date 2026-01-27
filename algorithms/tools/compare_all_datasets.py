@@ -36,13 +36,14 @@ from algorithms.functions.gst_iaekf import GSTIAEKF
 RUN_MODELS = None
 
 # 选择要对比的数据集 (设置为 None 对比所有数据集)
-# 可以用字符串或列表:
+# 格式: (温度文件夹, 文件名)
+# 可以用元组或列表:
 #   RUN_DATASETS = None                              # 所有数据集
-#   RUN_DATASETS = "25C_DST_50SOC.csv"              # 单个数据集
-#   RUN_DATASETS = ["25C_DST_50SOC.csv", "25C_FUDS_80SOC.csv"]  # 多个数据集
-# 可选: 25C_DST_80SOC, 25C_DST_50SOC, 25C_FUDS_80SOC, 25C_FUDS_50SOC,
-#       25C_US06_80SOC, 25C_US06_50SOC, 25C_BBDST_80SOC, 25C_BBDST_50SOC
-RUN_DATASETS = ["25C_DST_50SOC.csv", "25C_FUDS_50SOC.csv", "25C_US06_50SOC.csv", "25C_BBDST_50SOC.csv"]
+#   RUN_DATASETS = [("25C", "DST_50SOC.csv")]       # 单个数据集
+#   RUN_DATASETS = [("25C", "DST_50SOC.csv"), ("0C", "DST_50SOC.csv")]  # 多个数据集
+# 可选温度: 0C, 25C, 45C
+# 可选工况: DST, FUDS, US06, BBDST (各有50SOC和80SOC)
+RUN_DATASETS = [("25C", "DST_80SOC.csv"), ("25C", "FUDS_80SOC.csv"), ("25C", "US06_80SOC.csv"), ("25C", "BBDST_80SOC.csv")]
 
 # SOC过滤范围 (%)
 SOC_MIN = 10.0
@@ -54,15 +55,35 @@ SOC_MAX = 100.0
 
 ALL_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF"]
 
+# 所有数据集列表: (温度文件夹, 文件名)
 ALL_DATASETS = [
-    "25C_DST_80SOC.csv",
-    "25C_DST_50SOC.csv",
-    "25C_FUDS_80SOC.csv",
-    "25C_FUDS_50SOC.csv",
-    "25C_US06_80SOC.csv",
-    "25C_US06_50SOC.csv",
-    "25C_BBDST_80SOC.csv",
-    "25C_BBDST_50SOC.csv",
+    # 0C数据
+    ("0C", "DST_80SOC.csv"),
+    ("0C", "DST_50SOC.csv"),
+    ("0C", "FUDS_80SOC.csv"),
+    ("0C", "FUDS_50SOC.csv"),
+    ("0C", "US06_80SOC.csv"),
+    ("0C", "US06_50SOC.csv"),
+    ("0C", "BBDST_80SOC.csv"),
+    ("0C", "BBDST_50SOC.csv"),
+    # 25C数据
+    ("25C", "DST_80SOC.csv"),
+    ("25C", "DST_50SOC.csv"),
+    ("25C", "FUDS_80SOC.csv"),
+    ("25C", "FUDS_50SOC.csv"),
+    ("25C", "US06_80SOC.csv"),
+    ("25C", "US06_50SOC.csv"),
+    ("25C", "BBDST_80SOC.csv"),
+    ("25C", "BBDST_50SOC.csv"),
+    # 45C数据
+    ("45C", "DST_80SOC.csv"),
+    ("45C", "DST_50SOC.csv"),
+    ("45C", "FUDS_80SOC.csv"),
+    ("45C", "FUDS_50SOC.csv"),
+    ("45C", "US06_80SOC.csv"),
+    ("45C", "US06_50SOC.csv"),
+    ("45C", "BBDST_80SOC.csv"),
+    ("45C", "BBDST_50SOC.csv"),
 ]
 
 
@@ -89,16 +110,17 @@ def calculate_metrics(soc_estimated: np.ndarray, soc_true: np.ndarray):
     return {'rmse': rmse, 'mae': mae, 'max_error': max_error, 'error': error}
 
 
-def run_aekf(data: dict):
+def run_aekf(data: dict, temperature: str):
     """运行AEKF算法"""
-    # initial_soc = data['soc_true'][0] / 100
-    initial_soc = 0.3
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.3
     aekf = AEKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
         sample_time=1.0,
         use_online_param_id=True,
-        adaptive_Q=True
+        adaptive_Q=True,
+        temperature=temperature
     )
     results = aekf.estimate_batch(
         data['voltage'], data['current'], data['soc_true'], initial_soc
@@ -108,15 +130,16 @@ def run_aekf(data: dict):
     return soc_est, metrics
 
 
-def run_ukf(data: dict):
+def run_ukf(data: dict, temperature: str):
     """运行UKF算法"""
-    # initial_soc = data['soc_true'][0] / 100
-    initial_soc = 0.3
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.3
     ukf = UKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
         sample_time=1.0,
-        use_online_param_id=True
+        use_online_param_id=True,
+        temperature=temperature
     )
     results = ukf.estimate_batch(
         data['voltage'], data['current'], data['soc_true'], initial_soc
@@ -126,10 +149,10 @@ def run_ukf(data: dict):
     return soc_est, metrics
 
 
-def run_sr_ukf(data: dict):
+def run_sr_ukf(data: dict, temperature: str):
     """运行SR-UKF算法"""
-    # initial_soc = data['soc_true'][0] / 100
-    initial_soc = 0.3
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.3
     sr_ukf = RobustSRUKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -137,7 +160,8 @@ def run_sr_ukf(data: dict):
         use_online_param_id=True,
         enable_nis_gate=True,
         enable_student_t=True,
-        adaptive_nu=True
+        adaptive_nu=True,
+        temperature=temperature
     )
     results = sr_ukf.estimate_batch(
         data['voltage'], data['current'], data['soc_true'], initial_soc
@@ -147,10 +171,10 @@ def run_sr_ukf(data: dict):
     return soc_est, metrics
 
 
-def run_gst_iaekf(data: dict):
+def run_gst_iaekf(data: dict, temperature: str):
     """运行GST-IAEKF算法"""
-    # initial_soc = data['soc_true'][0] / 100
-    initial_soc = 0.3
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.3
     gst_iaekf = GSTIAEKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -160,7 +184,8 @@ def run_gst_iaekf(data: dict):
         enable_strong_tracking=True,
         enable_qr_adaptive=False,
         lambda_max=3.0,
-        rho=0.95
+        rho=0.95,
+        temperature=temperature
     )
     results = gst_iaekf.estimate_batch(
         data['voltage'], data['current'], data['soc_true'], initial_soc
@@ -170,7 +195,7 @@ def run_gst_iaekf(data: dict):
     return soc_est, metrics
 
 
-def run_model(model_name: str, data: dict):
+def run_model(model_name: str, data: dict, temperature: str):
     """运行指定模型，返回 (soc_estimated, metrics)"""
     runners = {
         'AEKF': run_aekf,
@@ -178,7 +203,7 @@ def run_model(model_name: str, data: dict):
         'SR-UKF': run_sr_ukf,
         'GST-IAEKF': run_gst_iaekf
     }
-    return runners[model_name](data)
+    return runners[model_name](data, temperature)
 
 
 def plot_soc_comparison(data: dict, model_results: dict, dataset_name: str, save_path: Path):
@@ -244,8 +269,8 @@ def plot_comparison_bar(all_results: dict, models: list, save_path: Path):
                 mae_data[i, j] = all_results[dataset][model]['mae']
                 max_error_data[i, j] = all_results[dataset][model]['max_error']
 
-    # 简化标签
-    dataset_labels = [d.replace("25C_", "").replace(".csv", "") for d in datasets]
+    # 数据集标签 (格式已经是 "25C_DST_50SOC")
+    dataset_labels = datasets
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
@@ -295,7 +320,8 @@ def plot_comparison_bar(all_results: dict, models: list, save_path: Path):
 def plot_heatmap(all_results: dict, models: list, save_path: Path):
     """绘制热力图"""
     datasets = list(all_results.keys())
-    dataset_labels = [d.replace("25C_", "").replace(".csv", "") for d in datasets]
+    # 数据集标签 (格式已经是 "25C_DST_50SOC")
+    dataset_labels = datasets
 
     # RMSE热力图
     rmse_matrix = np.zeros((len(datasets), len(models)))
@@ -334,15 +360,15 @@ def print_summary_table(all_results: dict, models: list):
 
     # RMSE表格
     print("\n[RMSE (%)]")
-    header = f"{'Dataset':<20}"
+    header = f"{'Dataset':<25}"
     for model in models:
         header += f" {model:>12}"
     print(header)
     print("-"*90)
 
     for dataset, metrics in all_results.items():
-        short_name = dataset.replace("25C_", "").replace(".csv", "")
-        row = f"  {short_name:<18}"
+        # dataset 格式已经是 "25C_DST_50SOC"
+        row = f"  {dataset:<23}"
         for model in models:
             if model in metrics:
                 row += f" {metrics[model]['rmse']:>12.4f}"
@@ -356,8 +382,7 @@ def print_summary_table(all_results: dict, models: list):
     print("-"*90)
 
     for dataset, metrics in all_results.items():
-        short_name = dataset.replace("25C_", "").replace(".csv", "")
-        row = f"  {short_name:<18}"
+        row = f"  {dataset:<23}"
         for model in models:
             if model in metrics:
                 row += f" {metrics[model]['mae']:>12.4f}"
@@ -371,8 +396,7 @@ def print_summary_table(all_results: dict, models: list):
     print("-"*90)
 
     for dataset, metrics in all_results.items():
-        short_name = dataset.replace("25C_", "").replace(".csv", "")
-        row = f"  {short_name:<18}"
+        row = f"  {dataset:<23}"
         for model in models:
             if model in metrics:
                 row += f" {metrics[model]['max_error']:>12.4f}"
@@ -413,11 +437,11 @@ def save_to_csv(all_results: dict, models: list, save_path: Path):
     """保存结果到CSV"""
     rows = []
     for dataset, metrics in all_results.items():
-        short_name = dataset.replace("25C_", "").replace(".csv", "")
+        # dataset 格式已经是 "25C_DST_50SOC"
         for model in models:
             if model in metrics:
                 rows.append({
-                    'Dataset': short_name,
+                    'Dataset': dataset,
                     'Model': model,
                     'RMSE': metrics[model]['rmse'],
                     'MAE': metrics[model]['mae'],
@@ -433,11 +457,9 @@ def main():
     """主函数"""
     # 确定要运行的模型和数据集
     models = RUN_MODELS if RUN_MODELS else ALL_MODELS
-    # 处理数据集配置 (支持 None, 字符串, 列表)
+    # 处理数据集配置 (支持 None 或 列表)
     if RUN_DATASETS is None:
         datasets = ALL_DATASETS
-    elif isinstance(RUN_DATASETS, str):
-        datasets = [RUN_DATASETS]  # 单个字符串转为列表
     else:
         datasets = RUN_DATASETS
 
@@ -457,9 +479,11 @@ def main():
 
     all_results = {}
 
-    for i, data_file in enumerate(datasets):
-        data_path = processed_dir / data_file
-        print(f"\n[{i+1}/{len(datasets)}] Processing: {data_file}")
+    for i, (temp_folder, data_file) in enumerate(datasets):
+        data_path = processed_dir / temp_folder / data_file
+        # 数据集标识符: 如 "25C_DST_50SOC"
+        dataset_key = f"{temp_folder}_{data_file.replace('.csv', '')}"
+        print(f"\n[{i+1}/{len(datasets)}] Processing: {dataset_key}")
 
         if not data_path.exists():
             print(f"  Warning: File not found, skipping...")
@@ -468,18 +492,18 @@ def main():
         data = load_data(data_path, SOC_MIN, SOC_MAX)
         print(f"  Data points: {len(data['time'])}")
 
-        all_results[data_file] = {}
+        all_results[dataset_key] = {}
         model_results = {}  # 存储完整结果用于绘图
 
         for model in models:
             print(f"    Running {model}...", end=" ")
-            soc_est, metrics = run_model(model, data)
-            all_results[data_file][model] = metrics  # 只存 metrics 用于汇总
+            soc_est, metrics = run_model(model, data, temp_folder)
+            all_results[dataset_key][model] = metrics  # 只存 metrics 用于汇总
             model_results[model] = (soc_est, metrics)  # 存完整结果用于绘图
             print(f"RMSE={metrics['rmse']:.4f}%")
 
         # 为每个数据集绘制 SOC 对比图和误差图
-        dataset_name = data_file.replace("25C_", "").replace(".csv", "")
+        dataset_name = dataset_key.replace(".csv", "")
         plot_soc_comparison(data, model_results, dataset_name,
                            save_dir / f"soc_comparison_{dataset_name}.png")
 

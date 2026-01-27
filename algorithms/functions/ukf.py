@@ -47,7 +47,8 @@ class UKF:
         use_online_param_id: bool = True,
         alpha: float = 1e-3,
         beta: float = 2.0,
-        kappa: float = 0.0
+        kappa: float = 0.0,
+        temperature: Optional[str] = None
     ):
         """
         初始化UKF估计器
@@ -63,7 +64,10 @@ class UKF:
             alpha: Sigma点分布参数，控制分布范围 (1e-4 ~ 1)
             beta: 分布类型参数，高斯分布时beta=2最优
             kappa: 次要缩放参数，通常为0或3-n
+            temperature: 温度标签 ("0C", "25C", "45C")，用于自动选择OCV系数，必须指定
         """
+        if temperature is None:
+            raise ValueError("Must specify 'temperature' parameter")
         # 状态维度
         self.n = 3
 
@@ -105,16 +109,20 @@ class UKF:
         else:
             self.P = initial_covariance.copy()
 
+        # 温度标签
+        self.temperature = temperature
+
         # 电池模型
         self.model = BatteryModel2RC(
             capacity_Ah=capacity_Ah,
-            sample_time=sample_time
+            sample_time=sample_time,
+            temperature=temperature
         )
 
         # 在线参数辨识器
         self.use_online_param_id = use_online_param_id
         if use_online_param_id:
-            self.ffrls = FFRLS(sample_time=sample_time)
+            self.ffrls = FFRLS(sample_time=sample_time, temperature=temperature)
         else:
             self.ffrls = None
 

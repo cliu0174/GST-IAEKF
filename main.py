@@ -39,17 +39,14 @@ from algorithms.functions.gst_iaekf import GSTIAEKF
 #   RUN_MODELS = ["SR-UKF", "GST-IAEKF"] # 运行 SR-UKF 和 GST-IAEKF
 RUN_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF"]
 
-# 选择数据文件 (相对于 dataset/processed/ 目录)
-# 可用数据集:
-#   - "25C_DST_80SOC.csv"    : DST工况, 80%初始SOC
-#   - "25C_DST_50SOC.csv"    : DST工况, 50%初始SOC
-#   - "25C_FUDS_80SOC.csv"   : FUDS工况, 80%初始SOC
-#   - "25C_FUDS_50SOC.csv"   : FUDS工况, 50%初始SOC
-#   - "25C_US06_80SOC.csv"   : US06工况, 80%初始SOC
-#   - "25C_US06_50SOC.csv"   : US06工况, 50%初始SOC
-#   - "25C_BBDST_80SOC.csv"  : BBDST工况, 80%初始SOC
-#   - "25C_BBDST_50SOC.csv"  : BBDST工况, 50%初始SOC
-DATA_FILE = "25C_DST_80SOC.csv"
+# 选择数据文件 (温度文件夹, 文件名)
+# 可用温度: 0C, 25C, 45C
+# 可用工况: DST, FUDS, US06, BBDST (各有50SOC和80SOC)
+# 示例:
+#   DATA_FILE = ("25C", "DST_80SOC.csv")   # 25°C DST工况, 80%初始SOC
+#   DATA_FILE = ("0C", "FUDS_50SOC.csv")   # 0°C FUDS工况, 50%初始SOC
+#   DATA_FILE = ("45C", "US06_80SOC.csv")  # 45°C US06工况, 80%初始SOC
+DATA_FILE = ("25C", "DST_80SOC.csv")
 
 # SOC过滤范围 (%)
 SOC_MIN = 10.0
@@ -91,7 +88,7 @@ def calculate_metrics(soc_estimated: np.ndarray, soc_true: np.ndarray):
     return {'rmse': rmse, 'mae': mae, 'max_error': max_error, 'error': error}
 
 
-def run_aekf(data: dict):
+def run_aekf(data: dict, temperature: str):
     """运行AEKF算法"""
     print("\n" + "="*50)
     print("Running AEKF...")
@@ -104,7 +101,8 @@ def run_aekf(data: dict):
         capacity_Ah=2.0,
         sample_time=1.0,
         use_online_param_id=True,
-        adaptive_Q=True
+        adaptive_Q=True,
+        temperature=temperature
     )
 
     results = aekf.estimate_batch(
@@ -119,7 +117,7 @@ def run_aekf(data: dict):
     return results, metrics
 
 
-def run_ukf(data: dict):
+def run_ukf(data: dict, temperature: str):
     """运行UKF算法"""
     print("\n" + "="*50)
     print("Running UKF...")
@@ -131,7 +129,8 @@ def run_ukf(data: dict):
         initial_soc=initial_soc,
         capacity_Ah=2.0,
         sample_time=1.0,
-        use_online_param_id=True
+        use_online_param_id=True,
+        temperature=temperature
     )
 
     results = ukf.estimate_batch(
@@ -146,7 +145,7 @@ def run_ukf(data: dict):
     return results, metrics
 
 
-def run_sr_ukf(data: dict):
+def run_sr_ukf(data: dict, temperature: str):
     """运行Robust SR-UKF算法"""
     print("\n" + "="*50)
     print("Running Robust SR-UKF...")
@@ -161,7 +160,8 @@ def run_sr_ukf(data: dict):
         use_online_param_id=True,
         enable_nis_gate=True,
         enable_student_t=True,
-        adaptive_nu=True
+        adaptive_nu=True,
+        temperature=temperature
     )
 
     results = sr_ukf.estimate_batch(
@@ -180,7 +180,7 @@ def run_sr_ukf(data: dict):
     return results, metrics
 
 
-def run_gst_iaekf(data: dict):
+def run_gst_iaekf(data: dict, temperature: str):
     """运行GST-IAEKF算法"""
     print("\n" + "="*50)
     print("Running GST-IAEKF...")
@@ -197,7 +197,8 @@ def run_gst_iaekf(data: dict):
         enable_strong_tracking=True,
         enable_qr_adaptive=False,
         lambda_max=3.0,
-        rho=0.95
+        rho=0.95,
+        temperature=temperature
     )
 
     results = gst_iaekf.estimate_batch(
@@ -216,9 +217,10 @@ def run_gst_iaekf(data: dict):
     return results, metrics
 
 
-def get_dataset_name(data_file: str) -> str:
-    """从数据文件名提取数据集名称"""
-    return Path(data_file).stem
+def get_dataset_name(data_file: tuple) -> str:
+    """从数据文件配置提取数据集名称"""
+    temp_folder, filename = data_file
+    return f"{temp_folder}_{Path(filename).stem}"
 
 
 def get_models_to_run() -> list:
@@ -236,7 +238,7 @@ def get_models_to_run() -> list:
     return valid_models
 
 
-def run_model(model_name: str, data: dict):
+def run_model(model_name: str, data: dict, temperature: str):
     """根据模型名称运行对应算法"""
     model_runners = {
         'AEKF': run_aekf,
@@ -246,7 +248,7 @@ def run_model(model_name: str, data: dict):
     }
 
     if model_name in model_runners:
-        return model_runners[model_name](data)
+        return model_runners[model_name](data, temperature)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -309,18 +311,19 @@ def main():
     """主函数"""
     models_to_run = get_models_to_run()
     dataset_name = get_dataset_name(DATA_FILE)
+    temp_folder, data_filename = DATA_FILE
 
     print("="*70)
     print("       SOC Estimation Algorithms")
     print("="*70)
-    print(f"  Dataset: {DATA_FILE}")
+    print(f"  Dataset: {dataset_name}")
     print(f"  Models:  {', '.join(models_to_run)}")
     print(f"  SOC Range: {SOC_MIN}% ~ {SOC_MAX}%")
     print("="*70)
 
     # 路径设置
     base_path = Path(__file__).parent
-    data_path = base_path / "dataset" / "processed" / DATA_FILE
+    data_path = base_path / "dataset" / "processed" / temp_folder / data_filename
     save_dir = base_path / "results" / "graphs" / dataset_name
 
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -331,8 +334,10 @@ def main():
         print("\nAvailable datasets:")
         processed_dir = base_path / "dataset" / "processed"
         if processed_dir.exists():
-            for f in processed_dir.glob("*.csv"):
-                print(f"  - {f.name}")
+            for temp_dir in processed_dir.iterdir():
+                if temp_dir.is_dir():
+                    for f in temp_dir.glob("*.csv"):
+                        print(f"  - (\"{temp_dir.name}\", \"{f.name}\")")
         return
 
     # 加载数据
@@ -343,7 +348,7 @@ def main():
     results_dict = {}
 
     for model_name in models_to_run:
-        results, metrics = run_model(model_name, data)
+        results, metrics = run_model(model_name, data, temp_folder)
         results_dict[model_name] = (results, metrics)
 
         # 保存结果图

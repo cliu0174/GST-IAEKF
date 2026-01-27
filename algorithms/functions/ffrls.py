@@ -29,6 +29,8 @@ import numpy as np
 from pathlib import Path
 from typing import Tuple, Optional, Union
 
+from .battery_model import get_ocv_coeffs
+
 
 class FFRLS:
     """
@@ -55,7 +57,8 @@ class FFRLS:
         sigma: float = 0.001,
         ocv_soc_coeffs: np.ndarray = None,
         adaptive_lambda: bool = True,
-        min_current_threshold: float = 0.001
+        min_current_threshold: float = 0.001,
+        temperature: Optional[str] = None
     ):
         """
         初始化FFRLS参数辨识器
@@ -65,10 +68,13 @@ class FFRLS:
             forgetting_factor: 初始遗忘因子 (0.95-0.999)
             initial_covariance: 协方差矩阵初始值
             sigma: 自适应遗忘因子的参数
-            ocv_soc_coeffs: OCV-SOC多项式系数 (高阶在前)，如果为None则使用默认值
+            ocv_soc_coeffs: OCV-SOC多项式系数 (高阶在前)，如果为None则根据temperature自动选择
             adaptive_lambda: 是否使用自适应遗忘因子
             min_current_threshold: 最小电流阈值，低于此值不进行参数更新 (A)
+            temperature: 温度标签 ("0C", "25C", "45C")，用于自动选择OCV系数，必须指定
         """
+        if temperature is None and ocv_soc_coeffs is None:
+            raise ValueError("Must specify either 'temperature' or 'ocv_soc_coeffs'")
         self.T = sample_time
         self.lambda_init = forgetting_factor
         self.lamda = forgetting_factor  # 当前遗忘因子
@@ -85,18 +91,13 @@ class FFRLS:
         self.P = initial_covariance * np.eye(5)
         self.P_init = initial_covariance
 
+        # 温度标签
+        self.temperature = temperature
+
         # OCV-SOC多项式系数 (5阶多项式，SOC归一化到0-1)
-        # 默认使用SP20电池的系数
         if ocv_soc_coeffs is None:
-            # 从之前拟合的结果: a5, a4, a3, a2, a1, a0
-            self.ocv_coeffs = np.array([
-                7.0764914278,    # a5
-                -22.6603870282,  # a4
-                27.3386349004,   # a3
-                -14.5745387772,  # a2
-                3.7881828466,    # a1
-                3.1958428465     # a0
-            ])
+            # 根据温度自动选择系数
+            self.ocv_coeffs = get_ocv_coeffs(temperature)
         else:
             self.ocv_coeffs = ocv_soc_coeffs
 

@@ -34,7 +34,16 @@ class BatteryDataProcessor:
     PROFILE_MAPPING = {
         'DST': 'DST',
         'BBDST': 'BBDST',
-        'BJDST': 'BBDST',  # Alias
+        'BJDST': 'BBDST',  # Alias (used in 0C and 45C data)
+        'FUDS': 'FUDS',
+        'US06': 'US06',
+    }
+
+    # Reverse mapping for output filename normalization
+    OUTPUT_PROFILE_NAME = {
+        'DST': 'DST',
+        'BBDST': 'BBDST',
+        'BJDST': 'BBDST',  # Normalize BJDST to BBDST in output
         'FUDS': 'FUDS',
         'US06': 'US06',
     }
@@ -74,17 +83,25 @@ class BatteryDataProcessor:
         else:
             folder_name = profile_upper
 
-        # Build search path
-        search_path = self.base_path / f"{temperature}C" / folder_name
+        # 尝试的文件夹名列表 (BBDST和BJDST互为别名)
+        folder_candidates = [folder_name]
+        if folder_name == 'BBDST':
+            folder_candidates.append('BJDST')
+        elif folder_name == 'BJDST':
+            folder_candidates.append('BBDST')
 
-        if not search_path.exists():
-            return None
+        # Try each candidate folder
+        for candidate in folder_candidates:
+            search_path = self.base_path / f"{temperature}C" / candidate
 
-        # Search for matching file
-        for file in search_path.glob("*.xls*"):
-            # Check if file name contains the SOC value
-            if f"{initial_soc}SOC" in file.name:
-                return file
+            if not search_path.exists():
+                continue
+
+            # Search for matching file
+            for file in search_path.glob("*.xls*"):
+                # Check if file name contains the SOC value
+                if f"{initial_soc}SOC" in file.name:
+                    return file
 
         return None
 
@@ -200,20 +217,23 @@ class BatteryDataProcessor:
             temperature: Temperature in Celsius
             profile: Test profile name
             initial_soc: Initial SOC percentage
-            output_dir: Output directory (default: dataset/processed)
+            output_dir: Output directory (default: dataset/processed/{temperature}C)
 
         Returns:
             Path to saved file
         """
         if output_dir is None:
-            output_dir = self.output_dir
+            # 默认保存到 processed/{temperature}C/ 子文件夹
+            output_dir = self.output_dir / f"{temperature}C"
 
         # Create output directory if not exists
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate filename
-        filename = f"{temperature}C_{profile.upper()}_{initial_soc}SOC.csv"
+        # Generate filename (不再包含温度前缀，因为已经在子文件夹中)
+        # 使用 OUTPUT_PROFILE_NAME 来规范化配置文件名称 (BJDST -> BBDST)
+        normalized_profile = self.OUTPUT_PROFILE_NAME.get(profile.upper(), profile.upper())
+        filename = f"{normalized_profile}_{initial_soc}SOC.csv"
         output_path = output_dir / filename
 
         # Save to CSV

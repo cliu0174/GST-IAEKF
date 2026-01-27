@@ -40,7 +40,8 @@ class AEKF:
         measurement_noise: float = 2e-4,
         initial_covariance: np.ndarray = None,
         use_online_param_id: bool = True,
-        adaptive_Q: bool = True
+        adaptive_Q: bool = True,
+        temperature: Optional[str] = None
     ):
         """
         初始化AEKF估计器
@@ -54,7 +55,10 @@ class AEKF:
             initial_covariance: 初始状态协方差矩阵P (3x3)
             use_online_param_id: 是否使用在线参数辨识
             adaptive_Q: 是否使用自适应过程噪声
+            temperature: 温度标签 ("0C", "25C", "45C")，用于自动选择OCV系数，必须指定
         """
+        if temperature is None:
+            raise ValueError("Must specify 'temperature' parameter")
         # 状态维度
         self.n_states = 3
 
@@ -89,16 +93,20 @@ class AEKF:
         else:
             self.P = initial_covariance.copy()
 
+        # 温度标签
+        self.temperature = temperature
+
         # 电池模型
         self.model = BatteryModel2RC(
             capacity_Ah=capacity_Ah,
-            sample_time=sample_time
+            sample_time=sample_time,
+            temperature=temperature
         )
 
         # 在线参数辨识器
         self.use_online_param_id = use_online_param_id
         if use_online_param_id:
-            self.ffrls = FFRLS(sample_time=sample_time)
+            self.ffrls = FFRLS(sample_time=sample_time, temperature=temperature)
         else:
             self.ffrls = None
 

@@ -59,7 +59,8 @@ class RobustSRUKF:
         nu_init: float = 5.0,         # Student-t初始自由度
         nu_min: float = 2.1,          # 最小自由度（>2保证方差有限）
         nu_max: float = 100.0,        # 最大自由度（接近高斯）
-        adaptive_nu: bool = True      # 是否自适应调节ν
+        adaptive_nu: bool = True,     # 是否自适应调节ν
+        temperature: Optional[str] = None
     ):
         """
         初始化鲁棒SR-UKF估计器
@@ -83,7 +84,10 @@ class RobustSRUKF:
             nu_min: 最小自由度
             nu_max: 最大自由度
             adaptive_nu: 是否自适应调节自由度
+            temperature: 温度标签 ("0C", "25C", "45C")，用于自动选择OCV系数，必须指定
         """
+        if temperature is None:
+            raise ValueError("Must specify 'temperature' parameter")
         # 状态维度
         self.n = 3
 
@@ -143,16 +147,20 @@ class RobustSRUKF:
         self.nu_max = nu_max
         self.adaptive_nu = adaptive_nu
 
+        # 温度标签
+        self.temperature = temperature
+
         # 电池模型
         self.model = BatteryModel2RC(
             capacity_Ah=capacity_Ah,
-            sample_time=sample_time
+            sample_time=sample_time,
+            temperature=temperature
         )
 
         # 在线参数辨识器
         self.use_online_param_id = use_online_param_id
         if use_online_param_id:
-            self.ffrls = FFRLS(sample_time=sample_time)
+            self.ffrls = FFRLS(sample_time=sample_time, temperature=temperature)
         else:
             self.ffrls = None
 

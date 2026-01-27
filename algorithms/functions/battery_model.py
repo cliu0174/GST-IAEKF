@@ -30,7 +30,54 @@ Date: 2024
 
 import numpy as np
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
+
+
+# OCV-SOC多项式系数 (5阶，基于Sample1放电数据)
+# 格式: [a5, a4, a3, a2, a1, a0]，对应 OCV = a5*SOC^5 + a4*SOC^4 + ... + a0
+# SOC归一化到0-1范围
+OCV_COEFFS_BY_TEMPERATURE: Dict[str, np.ndarray] = {
+    "0C": np.array([
+        5.9336989207,    # a5
+        -19.3750262049,  # a4
+        23.9184776506,   # a3
+        -12.9983899649,  # a2
+        3.4806727030,    # a1
+        3.2021595524     # a0
+    ]),
+    "25C": np.array([
+        7.0764914278,    # a5
+        -22.6603870282,  # a4
+        27.3386349004,   # a3
+        -14.5745387772,  # a2
+        3.7881828466,    # a1
+        3.1958428465     # a0
+    ]),
+    "45C": np.array([
+        4.4924627236,    # a5
+        -15.1763756895,  # a4
+        19.2925950070,   # a3
+        -10.6611789961,  # a2
+        2.9695385990,    # a1
+        3.2553279540     # a0
+    ]),
+}
+
+
+def get_ocv_coeffs(temperature: str = "25C") -> np.ndarray:
+    """
+    根据温度获取OCV-SOC多项式系数
+
+    Args:
+        temperature: 温度标签 ("0C", "25C", "45C")
+
+    Returns:
+        OCV多项式系数数组 [a5, a4, a3, a2, a1, a0]
+    """
+    if temperature not in OCV_COEFFS_BY_TEMPERATURE:
+        print(f"Warning: Temperature '{temperature}' not found, using 25C as default")
+        temperature = "25C"
+    return OCV_COEFFS_BY_TEMPERATURE[temperature].copy()
 
 
 class BatteryModel2RC:
@@ -49,7 +96,8 @@ class BatteryModel2RC:
         R2: float = 0.01,
         C1: float = 1000.0,
         C2: float = 100.0,
-        ocv_coeffs: np.ndarray = None
+        ocv_coeffs: np.ndarray = None,
+        temperature: Optional[str] = None
     ):
         """
         初始化电池模型
@@ -62,14 +110,21 @@ class BatteryModel2RC:
             R2: 第二RC环电阻 (Ohm)
             C1: 第一RC环电容 (F)
             C2: 第二RC环电容 (F)
-            ocv_coeffs: OCV-SOC多项式系数 (高阶在前，SOC归一化到0-1)
+            ocv_coeffs: OCV-SOC多项式系数 (高阶在前，SOC归一化到0-1)，如果为None则根据temperature自动选择
+            temperature: 温度标签 ("0C", "25C", "45C")，用于自动选择OCV系数，必须指定
         """
+        if temperature is None and ocv_coeffs is None:
+            raise ValueError("Must specify either 'temperature' or 'ocv_coeffs'")
+
         # 电池容量 (A·s)
         self.Qn = capacity_Ah * 3600
         self.capacity_Ah = capacity_Ah
 
         # 采样时间
         self.dt = sample_time
+
+        # 温度标签
+        self.temperature = temperature
 
         # 电路参数
         self.R0 = R0
@@ -84,15 +139,8 @@ class BatteryModel2RC:
 
         # OCV-SOC多项式系数 (5阶，基于Sample1放电数据)
         if ocv_coeffs is None:
-            # 默认使用Sample1的系数
-            self.ocv_coeffs = np.array([
-                7.0764914278,    # a5
-                -22.6603870282,  # a4
-                27.3386349004,   # a3
-                -14.5745387772,  # a2
-                3.7881828466,    # a1
-                3.1958428465     # a0
-            ])
+            # 根据温度自动选择系数
+            self.ocv_coeffs = get_ocv_coeffs(temperature)
         else:
             self.ocv_coeffs = ocv_coeffs
 

@@ -482,7 +482,7 @@ def main():
     """Main function"""
     # Data path
     base_path = Path(__file__).parent.parent.parent
-    data_path = base_path / "dataset" / "processed" / "25C_DST_80SOC.csv"
+    data_path = base_path / "dataset" / "processed" / "25C" / "DST_80SOC.csv"
 
     # 输出目录设置
     save_dir = base_path / "results" / "graphs"

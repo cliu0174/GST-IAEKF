@@ -61,6 +61,7 @@ class GSTIAEKF:
         enable_qr_adaptive: bool = True,
         window_size: int = 10,            # 滑窗大小
         qr_alpha: float = 0.98,           # Q/R更新平滑因子
+        temperature: Optional[str] = None
     ):
         """
         初始化GST-IAEKF估计器
@@ -83,7 +84,10 @@ class GSTIAEKF:
             enable_qr_adaptive: 是否启用Q/R自适应
             window_size: 滑窗大小
             qr_alpha: Q/R更新平滑因子
+            temperature: 温度标签 ("0C", "25C", "45C")，用于自动选择OCV系数，必须指定
         """
+        if temperature is None:
+            raise ValueError("Must specify 'temperature' parameter")
         # 状态维度
         self.n = 3
 
@@ -137,16 +141,20 @@ class GSTIAEKF:
         self.qr_alpha = qr_alpha
         self.innovation_window = deque(maxlen=window_size)  # 新息滑窗
 
+        # 温度标签
+        self.temperature = temperature
+
         # 电池模型
         self.model = BatteryModel2RC(
             capacity_Ah=capacity_Ah,
-            sample_time=sample_time
+            sample_time=sample_time,
+            temperature=temperature
         )
 
         # 在线参数辨识器
         self.use_online_param_id = use_online_param_id
         if use_online_param_id:
-            self.ffrls = FFRLS(sample_time=sample_time)
+            self.ffrls = FFRLS(sample_time=sample_time, temperature=temperature)
         else:
             self.ffrls = None
 
