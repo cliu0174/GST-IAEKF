@@ -36,15 +36,24 @@ from typing import Tuple, Optional, Dict
 # OCV-SOC多项式系数 (5阶，基于Sample1放电数据)
 # 格式: [a5, a4, a3, a2, a1, a0]，对应 OCV = a5*SOC^5 + a4*SOC^4 + ... + a0
 # SOC归一化到0-1范围
+# 更新日期: 重新处理后的10点拟合系数（去除0C的101%点和45C的0.7%点）
 OCV_COEFFS_BY_TEMPERATURE: Dict[str, np.ndarray] = {
     "0C": np.array([
-        5.9336989207,    # a5
-        -19.3750262049,  # a4
-        23.9184776506,   # a3
-        -12.9983899649,  # a2
-        3.4806727030,    # a1
-        3.2021595524     # a0
+        3.0129757165,    # a5 (重新拟合，10点，去除101% SOC点)
+        -12.1672091325,  # a4
+        17.3946249035,   # a3
+        -10.3529845044,  # a2
+        3.0151271919,    # a1
+        3.2294207886     # a0
     ]),
+    # "0C": np.array([  # 旧系数(11点，包含101% SOC点)
+    #     5.9336989207,    # a5
+    #     -19.3750262049,  # a4
+    #     23.9184776506,   # a3
+    #     -12.9983899649,  # a2
+    #     3.4806727030,    # a1
+    #     3.2021595524     # a0
+    # ]),
     "25C": np.array([
         7.0764914278,    # a5
         -22.6603870282,  # a4
@@ -54,13 +63,48 @@ OCV_COEFFS_BY_TEMPERATURE: Dict[str, np.ndarray] = {
         3.1958428465     # a0
     ]),
     "45C": np.array([
-        4.4924627236,    # a5
-        -15.1763756895,  # a4
-        19.2925950070,   # a3
-        -10.6611789961,  # a2
-        2.9695385990,    # a1
-        3.2553279540     # a0
+        5.8937619113,    # a5 (重新拟合，10点，去除0.7% SOC点)
+        -19.2389548601,  # a4
+        23.6559450160,   # a3
+        -12.7818859540,  # a2
+        3.4197127821,    # a1
+        3.2238325021     # a0
     ]),
+    # "45C": np.array([  # 旧系数(11点，包含0.7% SOC点)
+    #     4.4924627236,    # a5
+    #     -15.1763756895,  # a4
+    #     19.2925950070,   # a3
+    #     -10.6611789961,  # a2
+    #     2.9695385990,    # a1
+    #     3.2553279540     # a0
+    # ]),
+}
+
+# RC参数字典（按温度）
+# 格式: {"温度": {"R0": 欧姆内阻, "R1": 第一RC环电阻, "R2": 第二RC环电阻, "C1": 第一RC环电容, "C2": 第二RC环电容}}
+# 温度对电池内阻的影响: 低温增大，高温减小
+RC_PARAMS_BY_TEMPERATURE: Dict[str, Dict[str, float]] = {
+    "0C": {
+        "R0": 0.15,    # 欧姆内阻增大约2倍
+        "R1": 0.04,    # 极化电阻增大约2倍
+        "R2": 0.02,    # 极化电阻增大约2倍
+        "C1": 1000.0,  # 电容温度依赖性较小
+        "C2": 100.0,   # 电容温度依赖性较小
+    },
+    "25C": {
+        "R0": 0.07,    # 基准温度参数
+        "R1": 0.02,
+        "R2": 0.01,
+        "C1": 1000.0,
+        "C2": 100.0,
+    },
+    "45C": {
+        "R0": 0.05,    # 欧姆内阻减小约30%
+        "R1": 0.015,   # 极化电阻减小约25%
+        "R2": 0.008,   # 极化电阻减小约20%
+        "C1": 1000.0,  # 电容温度依赖性较小
+        "C2": 100.0,   # 电容温度依赖性较小
+    },
 }
 
 
@@ -80,6 +124,22 @@ def get_ocv_coeffs(temperature: str = "25C") -> np.ndarray:
     return OCV_COEFFS_BY_TEMPERATURE[temperature].copy()
 
 
+def get_rc_params(temperature: str = "25C") -> Dict[str, float]:
+    """
+    根据温度获取RC参数
+
+    Args:
+        temperature: 温度标签 ("0C", "25C", "45C")
+
+    Returns:
+        RC参数字典 {"R0": float, "R1": float, "R2": float, "C1": float, "C2": float}
+    """
+    if temperature not in RC_PARAMS_BY_TEMPERATURE:
+        print(f"Warning: Temperature '{temperature}' not found for RC params, using 25C as default")
+        temperature = "25C"
+    return RC_PARAMS_BY_TEMPERATURE[temperature].copy()
+
+
 class BatteryModel2RC:
     """
     二阶RC等效电路电池模型
@@ -91,12 +151,12 @@ class BatteryModel2RC:
         self,
         capacity_Ah: float = 2.0,
         sample_time: float = 1.0,
-        R0: float = 0.07,
-        R1: float = 0.02,
-        R2: float = 0.01,
-        C1: float = 1000.0,
-        C2: float = 100.0,
-        ocv_coeffs: np.ndarray = None,
+        R0: Optional[float] = None,
+        R1: Optional[float] = None,
+        R2: Optional[float] = None,
+        C1: Optional[float] = None,
+        C2: Optional[float] = None,
+        ocv_coeffs: Optional[np.ndarray] = None,
         temperature: Optional[str] = None
     ):
         """
@@ -105,13 +165,13 @@ class BatteryModel2RC:
         Args:
             capacity_Ah: 电池额定容量 (Ah)
             sample_time: 采样时间 (s)
-            R0: 欧姆内阻 (Ohm)
-            R1: 第一RC环电阻 (Ohm)
-            R2: 第二RC环电阻 (Ohm)
-            C1: 第一RC环电容 (F)
-            C2: 第二RC环电容 (F)
+            R0: 欧姆内阻 (Ohm)，如果为None则根据temperature自动选择
+            R1: 第一RC环电阻 (Ohm)，如果为None则根据temperature自动选择
+            R2: 第二RC环电阻 (Ohm)，如果为None则根据temperature自动选择
+            C1: 第一RC环电容 (F)，如果为None则根据temperature自动选择
+            C2: 第二RC环电容 (F)，如果为None则根据temperature自动选择
             ocv_coeffs: OCV-SOC多项式系数 (高阶在前，SOC归一化到0-1)，如果为None则根据temperature自动选择
-            temperature: 温度标签 ("0C", "25C", "45C")，用于自动选择OCV系数，必须指定
+            temperature: 温度标签 ("0C", "25C", "45C")，用于自动选择OCV系数和RC参数，必须指定
         """
         if temperature is None and ocv_coeffs is None:
             raise ValueError("Must specify either 'temperature' or 'ocv_coeffs'")
@@ -126,21 +186,34 @@ class BatteryModel2RC:
         # 温度标签
         self.temperature = temperature
 
-        # 电路参数
-        self.R0 = R0
-        self.R1 = R1
-        self.R2 = R2
-        self.C1 = C1
-        self.C2 = C2
+        # 根据温度自动选择RC参数（如果未显式指定）
+        if temperature is not None:
+            rc_params = get_rc_params(temperature)
+            self.R0 = R0 if R0 is not None else rc_params["R0"]
+            self.R1 = R1 if R1 is not None else rc_params["R1"]
+            self.R2 = R2 if R2 is not None else rc_params["R2"]
+            self.C1 = C1 if C1 is not None else rc_params["C1"]
+            self.C2 = C2 if C2 is not None else rc_params["C2"]
+        else:
+            # 没有temperature时使用默认值或显式指定的值
+            self.R0 = R0 if R0 is not None else 0.07
+            self.R1 = R1 if R1 is not None else 0.02
+            self.R2 = R2 if R2 is not None else 0.01
+            self.C1 = C1 if C1 is not None else 1000.0
+            self.C2 = C2 if C2 is not None else 100.0
 
-        # 时间常数
-        self.tau1 = R1 * C1
-        self.tau2 = R2 * C2
+        # 时间常数（使用已经赋值的self.R1等）
+        self.tau1 = self.R1 * self.C1
+        self.tau2 = self.R2 * self.C2
 
         # OCV-SOC多项式系数 (5阶，基于Sample1放电数据)
         if ocv_coeffs is None:
             # 根据温度自动选择系数
-            self.ocv_coeffs = get_ocv_coeffs(temperature)
+            if temperature is not None:
+                self.ocv_coeffs = get_ocv_coeffs(temperature)
+            else:
+                # 如果没有temperature也没有ocv_coeffs，使用默认25C
+                self.ocv_coeffs = get_ocv_coeffs("25C")
         else:
             self.ocv_coeffs = ocv_coeffs
 

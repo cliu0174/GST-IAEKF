@@ -94,8 +94,8 @@ def run_aekf(data: dict, temperature: str):
     print("Running AEKF...")
     print("="*50)
 
-    # initial_soc = data['soc_true'][0] / 100
-    initial_soc = 0.9
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.9
     aekf = AEKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -123,8 +123,8 @@ def run_ukf(data: dict, temperature: str):
     print("Running UKF...")
     print("="*50)
 
-    # initial_soc = data['soc_true'][0] / 100
-    initial_soc = 0.9
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.9
     ukf = UKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -151,8 +151,8 @@ def run_sr_ukf(data: dict, temperature: str):
     print("Running Robust SR-UKF...")
     print("="*50)
 
-    # initial_soc = data['soc_true'][0] / 100
-    initial_soc = 0.9
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.9
     sr_ukf = RobustSRUKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
@@ -186,8 +186,8 @@ def run_gst_iaekf(data: dict, temperature: str):
     print("Running GST-IAEKF...")
     print("="*50)
 
-    # initial_soc = data['soc_true'][0] / 100
-    initial_soc = 0.9
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.9
     gst_iaekf = GSTIAEKF(
         initial_soc=initial_soc,
         capacity_Ah=2.0,
