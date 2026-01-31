@@ -41,11 +41,11 @@ class GSTIAEKF:
 
     def __init__(
         self,
-        initial_soc: float = 0.6,
+        initial_soc: float = 0.8,
         capacity_Ah: float = 2.0,
         sample_time: float = 1.0,
         process_noise: np.ndarray = None,
-        measurement_noise: float = 2e-4,
+        measurement_noise: float = 2e-2,
         initial_covariance: np.ndarray = None,
         use_online_param_id: bool = True,
         # NIS门控参数

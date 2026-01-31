@@ -56,8 +56,8 @@ SOC_MAX = 100.0
 #                           配置区域结束
 # ============================================================================
 
-# 所有可用模型
-ALL_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF"]
+# 所有可用模型"AEKF", "UKF", "SR-UKF",
+ALL_MODELS = [ "GST-IAEKF"]
 
 
 def load_data(data_path: Path, soc_min: float = 10.0, soc_max: float = 100.0):
@@ -195,7 +195,7 @@ def run_gst_iaekf(data: dict, temperature: str):
         use_online_param_id=True,
         enable_nis_gate=True,
         enable_strong_tracking=True,
-        enable_qr_adaptive=False,
+        enable_qr_adaptive=False,  # 启用Q/R自适应（完整模型）
         lambda_max=3.0,
         rho=0.95,
         temperature=temperature

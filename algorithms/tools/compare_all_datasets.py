@@ -33,7 +33,7 @@ from algorithms.functions.gst_iaekf import GSTIAEKF
 
 # 选择要运行的模型 (可选: "AEKF", "UKF", "SR-UKF", "GST-IAEKF")
 # 设置为 None 或 [] 运行所有模型
-RUN_MODELS = None
+RUN_MODELS = ["AEKF", "GST-IAEKF"]
 
 # 选择要对比的数据集 (设置为 None 对比所有数据集)
 # 格式: (温度文件夹, 文件名)
@@ -43,7 +43,7 @@ RUN_MODELS = None
 #   RUN_DATASETS = [("25C", "DST_50SOC.csv"), ("0C", "DST_50SOC.csv")]  # 多个数据集
 # 可选温度: 0C, 25C, 45C
 # 可选工况: DST, FUDS, US06, BBDST (各有50SOC和80SOC)
-RUN_DATASETS = [("0C", "DST_50SOC.csv"), ("0C", "FUDS_50SOC.csv"), ("0C", "US06_50SOC.csv"), ("0C", "BBDST_50SOC.csv")]
+RUN_DATASETS = [("25C", "DST_50SOC.csv"), ("25C", "FUDS_50SOC.csv"), ("25C", "US06_50SOC.csv"), ("25C", "BBDST_50SOC.csv")]
 
 # SOC过滤范围 (%)
 SOC_MIN = 10.0
@@ -112,7 +112,7 @@ def calculate_metrics(soc_estimated: np.ndarray, soc_true: np.ndarray):
 
 def run_aekf(data: dict, temperature: str):
     """运行AEKF算法"""
-    initial_soc = data['soc_true'][0] / 100 - 0.1
+    initial_soc = data['soc_true'][0] / 100 + 0.2
     # initial_soc = 0.3
     aekf = AEKF(
         initial_soc=initial_soc,
@@ -132,7 +132,7 @@ def run_aekf(data: dict, temperature: str):
 
 def run_ukf(data: dict, temperature: str):
     """运行UKF算法"""
-    initial_soc = data['soc_true'][0] / 100 - 0.1
+    initial_soc = data['soc_true'][0] / 100 - 0.2
     # initial_soc = 0.3
     ukf = UKF(
         initial_soc=initial_soc,
@@ -151,7 +151,7 @@ def run_ukf(data: dict, temperature: str):
 
 def run_sr_ukf(data: dict, temperature: str):
     """运行SR-UKF算法"""
-    initial_soc = data['soc_true'][0] / 100 - 0.1
+    initial_soc = data['soc_true'][0] / 100 + 0.2
     # initial_soc = 0.3
     sr_ukf = RobustSRUKF(
         initial_soc=initial_soc,
@@ -173,7 +173,7 @@ def run_sr_ukf(data: dict, temperature: str):
 
 def run_gst_iaekf(data: dict, temperature: str):
     """运行GST-IAEKF算法"""
-    initial_soc = data['soc_true'][0] / 100 - 0.1
+    initial_soc = data['soc_true'][0] / 100 + 0.2
     # initial_soc = 0.3
     gst_iaekf = GSTIAEKF(
         initial_soc=initial_soc,
