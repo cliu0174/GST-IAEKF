@@ -25,15 +25,17 @@ from algorithms.functions.aekf import AEKF
 from algorithms.functions.ukf import UKF
 from algorithms.functions.sr_ukf import RobustSRUKF
 from algorithms.functions.gst_iaekf import GSTIAEKF
+from algorithms.functions.gst_aekf import GSTAEKF
 
 
 # ============================================================================
 #                           用户配置区域 (Configuration)
 # ============================================================================
 
-# 选择要运行的模型 (可选: "AEKF", "UKF", "SR-UKF", "GST-IAEKF")
+# 选择要运行的模型 (可选: "AEKF", "UKF", "SR-UKF", "GST-IAEKF", "GST-AEKF")
 # 设置为 None 或 [] 运行所有模型
-RUN_MODELS = ["AEKF", "GST-IAEKF"]
+# RUN_MODELS = ["AEKF", "GST-IAEKF"]
+RUN_MODELS = None
 
 # 选择要对比的数据集 (设置为 None 对比所有数据集)
 # 格式: (温度文件夹, 文件名)
@@ -43,7 +45,12 @@ RUN_MODELS = ["AEKF", "GST-IAEKF"]
 #   RUN_DATASETS = [("25C", "DST_50SOC.csv"), ("0C", "DST_50SOC.csv")]  # 多个数据集
 # 可选温度: 0C, 25C, 45C
 # 可选工况: DST, FUDS, US06, BBDST (各有50SOC和80SOC)
-RUN_DATASETS = [("25C", "DST_50SOC.csv"), ("25C", "FUDS_50SOC.csv"), ("25C", "US06_50SOC.csv"), ("25C", "BBDST_50SOC.csv")]
+RUN_DATASETS = [("0C", "DST_80SOC.csv"), ("0C", "FUDS_80SOC.csv"), ("0C", "US06_80SOC.csv"), ("0C", "BBDST_80SOC.csv"),
+                ("0C", "DST_50SOC.csv"), ("0C", "FUDS_50SOC.csv"), ("0C", "US06_50SOC.csv"), ("0C", "BBDST_50SOC.csv"),
+                ("25C", "DST_80SOC.csv"), ("25C", "FUDS_80SOC.csv"), ("25C", "US06_80SOC.csv"), ("25C", "BBDST_80SOC.csv"),
+                ("25C", "DST_50SOC.csv"), ("25C", "FUDS_50SOC.csv"), ("25C", "US06_50SOC.csv"), ("25C", "BBDST_50SOC.csv"),
+                ("45C", "DST_80SOC.csv"), ("45C", "FUDS_80SOC.csv"), ("45C", "US06_80SOC.csv"), ("45C", "BBDST_80SOC.csv"),
+                ("45C", "DST_50SOC.csv"), ("45C", "FUDS_50SOC.csv"), ("45C", "US06_50SOC.csv"), ("45C", "BBDST_50SOC.csv")]
 
 # SOC过滤范围 (%)
 SOC_MIN = 10.0
@@ -53,7 +60,7 @@ SOC_MAX = 100.0
 #                           配置区域结束
 # ============================================================================
 
-ALL_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF"]
+ALL_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF", "GST-AEKF"]
 
 # 所有数据集列表: (温度文件夹, 文件名)
 ALL_DATASETS = [
@@ -112,7 +119,7 @@ def calculate_metrics(soc_estimated: np.ndarray, soc_true: np.ndarray):
 
 def run_aekf(data: dict, temperature: str):
     """运行AEKF算法"""
-    initial_soc = data['soc_true'][0] / 100 + 0.2
+    initial_soc = data['soc_true'][0] / 100
     # initial_soc = 0.3
     aekf = AEKF(
         initial_soc=initial_soc,
@@ -132,7 +139,7 @@ def run_aekf(data: dict, temperature: str):
 
 def run_ukf(data: dict, temperature: str):
     """运行UKF算法"""
-    initial_soc = data['soc_true'][0] / 100 - 0.2
+    initial_soc = data['soc_true'][0] / 100
     # initial_soc = 0.3
     ukf = UKF(
         initial_soc=initial_soc,
@@ -151,7 +158,7 @@ def run_ukf(data: dict, temperature: str):
 
 def run_sr_ukf(data: dict, temperature: str):
     """运行SR-UKF算法"""
-    initial_soc = data['soc_true'][0] / 100 + 0.2
+    initial_soc = data['soc_true'][0] / 100
     # initial_soc = 0.3
     sr_ukf = RobustSRUKF(
         initial_soc=initial_soc,
@@ -173,7 +180,7 @@ def run_sr_ukf(data: dict, temperature: str):
 
 def run_gst_iaekf(data: dict, temperature: str):
     """运行GST-IAEKF算法"""
-    initial_soc = data['soc_true'][0] / 100 + 0.2
+    initial_soc = data['soc_true'][0] / 100
     # initial_soc = 0.3
     gst_iaekf = GSTIAEKF(
         initial_soc=initial_soc,
@@ -195,13 +202,38 @@ def run_gst_iaekf(data: dict, temperature: str):
     return soc_est, metrics
 
 
+def run_gst_aekf(data: dict, temperature: str):
+    """运行GST-AEKF算法 (AEKF激进Q + 门控 + 强跟踪)"""
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.3
+    gst_aekf = GSTAEKF(
+        initial_soc=initial_soc,
+        capacity_Ah=2.0,
+        sample_time=1.0,
+        use_online_param_id=True,
+        enable_nis_gate=True,
+        enable_strong_tracking=True,
+        enable_adaptive_Q=True,
+        lambda_max=3.0,
+        rho=0.95,
+        temperature=temperature
+    )
+    results = gst_aekf.estimate_batch(
+        data['voltage'], data['current'], data['soc_true'], initial_soc
+    )
+    soc_est = results['SOC_percent']
+    metrics = calculate_metrics(soc_est, data['soc_true'])
+    return soc_est, metrics
+
+
 def run_model(model_name: str, data: dict, temperature: str):
     """运行指定模型，返回 (soc_estimated, metrics)"""
     runners = {
         'AEKF': run_aekf,
         'UKF': run_ukf,
         'SR-UKF': run_sr_ukf,
-        'GST-IAEKF': run_gst_iaekf
+        'GST-IAEKF': run_gst_iaekf,
+        'GST-AEKF': run_gst_aekf
     }
     return runners[model_name](data, temperature)
 
@@ -213,8 +245,8 @@ def plot_soc_comparison(data: dict, model_results: dict, dataset_name: str, save
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 10))
 
-    colors = {'AEKF': '#1f77b4', 'UKF': '#ff7f0e', 'SR-UKF': '#2ca02c', 'GST-IAEKF': '#d62728'}
-    linestyles = {'AEKF': '--', 'UKF': '-.', 'SR-UKF': ':', 'GST-IAEKF': '-'}
+    colors = {'AEKF': '#1f77b4', 'UKF': '#ff7f0e', 'SR-UKF': '#2ca02c', 'GST-IAEKF': '#d62728', 'GST-AEKF': '#9467bd'}
+    linestyles = {'AEKF': '--', 'UKF': '-.', 'SR-UKF': ':', 'GST-IAEKF': '-', 'GST-AEKF': '-'}
 
     # 上图: SOC对比
     axes[0].plot(time, soc_true, 'b-', linewidth=2, label='True SOC', alpha=0.8)
@@ -275,8 +307,8 @@ def plot_comparison_bar(all_results: dict, models: list, save_path: Path):
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
     x = np.arange(n_datasets)
-    width = 0.18
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    width = 0.15
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
 
     # RMSE
     for j, model in enumerate(models):

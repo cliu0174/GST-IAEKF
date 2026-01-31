@@ -24,20 +24,22 @@ from algorithms.functions.aekf import AEKF
 from algorithms.functions.ukf import UKF
 from algorithms.functions.sr_ukf import RobustSRUKF
 from algorithms.functions.gst_iaekf import GSTIAEKF
+from algorithms.functions.gst_aekf import GSTAEKF
 
 
 # ============================================================================
 #                           用户配置区域 (Configuration)
 # ============================================================================
 
-# 选择要运行的模型 (可选: "AEKF", "UKF", "SR-UKF", "GST-IAEKF")
+# 选择要运行的模型 (可选: "AEKF", "UKF", "SR-UKF", "GST-IAEKF", "GST-AEKF")
 # 设置为 None 或 [] 运行所有模型，或指定列表运行特定模型
 # 示例:
 #   RUN_MODELS = None                    # 运行所有模型
 #   RUN_MODELS = ["AEKF"]               # 只运行 AEKF
 #   RUN_MODELS = ["AEKF", "UKF"]        # 运行 AEKF 和 UKF
-#   RUN_MODELS = ["SR-UKF", "GST-IAEKF"] # 运行 SR-UKF 和 GST-IAEKF
-RUN_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF"]
+#   RUN_MODELS = ["GST-AEKF"]           # 只运行 GST-AEKF (推荐)
+#   RUN_MODELS = ["GST-AEKF", "GST-IAEKF"] # 对比 GST-AEKF 和 GST-IAEKF  "AEKF", "UKF", "SR-UKF", "GST-IAEKF",
+RUN_MODELS = ["GST-AEKF"]
 
 # 选择数据文件 (温度文件夹, 文件名)
 # 可用温度: 0C, 25C, 45C
@@ -46,7 +48,7 @@ RUN_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF"]
 #   DATA_FILE = ("25C", "DST_80SOC.csv")   # 25°C DST工况, 80%初始SOC
 #   DATA_FILE = ("0C", "FUDS_50SOC.csv")   # 0°C FUDS工况, 50%初始SOC
 #   DATA_FILE = ("45C", "US06_80SOC.csv")  # 45°C US06工况, 80%初始SOC
-DATA_FILE = ("25C", "DST_80SOC.csv")
+DATA_FILE = ("45C", "BBDST_80SOC.csv")
 
 # SOC过滤范围 (%)
 SOC_MIN = 10.0
@@ -56,8 +58,8 @@ SOC_MAX = 100.0
 #                           配置区域结束
 # ============================================================================
 
-# 所有可用模型"AEKF", "UKF", "SR-UKF",
-ALL_MODELS = [ "GST-IAEKF"]
+# 所有可用模型
+ALL_MODELS = ["AEKF", "UKF", "SR-UKF", "GST-IAEKF", "GST-AEKF"]
 
 
 def load_data(data_path: Path, soc_min: float = 10.0, soc_max: float = 100.0):
@@ -217,6 +219,43 @@ def run_gst_iaekf(data: dict, temperature: str):
     return results, metrics
 
 
+def run_gst_aekf(data: dict, temperature: str):
+    """运行GST-AEKF算法 (AEKF激进Q + 门控 + 强跟踪)"""
+    print("\n" + "="*50)
+    print("Running GST-AEKF...")
+    print("="*50)
+
+    initial_soc = data['soc_true'][0] / 100
+    # initial_soc = 0.9
+    gst_aekf = GSTAEKF(
+        initial_soc=initial_soc,
+        capacity_Ah=2.0,
+        sample_time=1.0,
+        use_online_param_id=True,
+        enable_nis_gate=True,
+        enable_strong_tracking=True,
+        enable_adaptive_Q=True,
+        lambda_max=3.0,
+        rho=0.95,
+        temperature=temperature
+    )
+
+    results = gst_aekf.estimate_batch(
+        data['voltage'], data['current'], data['soc_true'], initial_soc
+    )
+
+    metrics = calculate_metrics(results['SOC_percent'], data['soc_true'])
+    gate_triggered = np.sum(results['gate_triggered'])
+
+    print(f"  RMSE: {metrics['rmse']:.4f}%")
+    print(f"  MAE: {metrics['mae']:.4f}%")
+    print(f"  Max Error: {metrics['max_error']:.4f}%")
+    print(f"  Gate Triggered: {gate_triggered} times")
+
+    metrics['gate_triggered'] = gate_triggered
+    return results, metrics
+
+
 def get_dataset_name(data_file: tuple) -> str:
     """从数据文件配置提取数据集名称"""
     temp_folder, filename = data_file
@@ -244,7 +283,8 @@ def run_model(model_name: str, data: dict, temperature: str):
         'AEKF': run_aekf,
         'UKF': run_ukf,
         'SR-UKF': run_sr_ukf,
-        'GST-IAEKF': run_gst_iaekf
+        'GST-IAEKF': run_gst_iaekf,
+        'GST-AEKF': run_gst_aekf
     }
 
     if model_name in model_runners:

@@ -28,77 +28,11 @@ import seaborn as sns
 from typing import Dict, List, Tuple
 
 from algorithms.functions.gst_iaekf import GSTIAEKF
+from algorithms.functions.gst_aekf import GSTAEKF
 from algorithms.functions.aekf import AEKF
 
 # 导入CRDST专用的激进版本
 from algorithms.tools.test_crdst_models import GSTIAEKF_Aggressive
-
-
-# 创建AEKF + Gate + ST混合类
-class AEKF_GateST(GSTIAEKF):
-    """
-    AEKF + Gate + ST 混合模型
-    - 使用AEKF的激进Q更新策略
-    - 使用GST-IAEKF的门控和强跟踪功能
-    """
-    def __init__(self, *args, **kwargs):
-        # 强制设置：门控和强跟踪开启，QR自适应关闭
-        kwargs['enable_nis_gate'] = True
-        kwargs['enable_strong_tracking'] = True
-        kwargs['enable_qr_adaptive'] = False
-        super().__init__(*args, **kwargs)
-
-    def update(self, voltage: float, current: float):
-        """
-        混合更新策略：
-        - 使用GST-IAEKF的门控和强跟踪
-        - 使用AEKF的激进Q更新（直接替换）
-        """
-        # 预测观测值
-        Ut_pred = self.model.observation(self.x, current)
-        C = self.model.get_observation_jacobian(self.x, current)
-
-        # 新息
-        e = voltage - Ut_pred
-
-        # 新息协方差
-        S = C @ self.P @ C.T + self.R
-
-        # === NIS门控 ===
-        NIS = e**2 / S
-        gate_triggered = False
-        R_effective = self.R
-
-        if self.enable_nis_gate and NIS > self.nis_threshold:
-            gate_triggered = True
-            R_effective = self.R * self.nis_R_scale
-            S = C @ self.P @ C.T + R_effective
-
-            # 激活强跟踪
-            if self.enable_strong_tracking:
-                self.lambda_k = min(self.lambda_max, 1.0 + (NIS - self.nis_threshold) * 0.5)
-
-        # 卡尔曼增益
-        K = self.P @ C.T / S
-
-        # 状态更新
-        self.x = self.x + K * e
-        self.x[0] = np.clip(self.x[0], 0, 1)
-
-        # 协方差更新（Joseph形式）
-        I_KC = np.eye(self.n) - np.outer(K, C)
-        self.P = I_KC @ self.P @ I_KC.T + np.outer(K, K) * R_effective
-
-        # === AEKF式的激进Q更新 ===
-        self.Q = np.outer(K, K) * (e ** 2)
-
-        # 确保对称正定
-        self.P = (self.P + self.P.T) / 2
-        min_eig = np.min(np.linalg.eigvalsh(self.P))
-        if min_eig < 1e-10:
-            self.P = self.P + (1e-10 - min_eig) * np.eye(self.n)
-
-        return self.x, Ut_pred, NIS, gate_triggered
 
 
 # ============================================================================
@@ -144,11 +78,11 @@ ABLATION_CONFIGS = [
         'linewidth': 2.0
     },
 
-    # 组0.5: AEKF + Gate + ST (AEKF的激进Q + 门控 + 强跟踪)
+    # 组0.5: GST-AEKF (AEKF的激进Q + 门控 + 强跟踪)
     {
-        'name': 'AEKF+Gate+ST',
-        'label': 'AEKF + Gate + ST',
-        'model_type': 'AEKF_GateST',  # 标记使用混合类
+        'name': 'GST-AEKF',
+        'label': 'GST-AEKF',
+        'model_type': 'GST-AEKF',  # 使用独立的GST-AEKF模型
         'color': '#16a085',  # 深青色
         'linestyle': '-',
         'linewidth': 2.0
@@ -353,9 +287,9 @@ def run_ablation_experiment(
             adaptive_Q=config.get('adaptive_Q', True),
             temperature=data['temperature']
         )
-    elif model_type == 'AEKF_GateST':
-        # 使用AEKF + Gate + ST混合类
-        estimator = AEKF_GateST(
+    elif model_type == 'GST-AEKF':
+        # 使用GST-AEKF模型 (AEKF激进Q + 门控 + 强跟踪)
+        estimator = GSTAEKF(
             initial_soc=initial_soc,
             capacity_Ah=data['capacity'],
             sample_time=1.0,
@@ -363,6 +297,9 @@ def run_ablation_experiment(
             measurement_noise=measurement_noise,
             initial_covariance=initial_covariance,
             use_online_param_id=True,
+            enable_nis_gate=True,
+            enable_strong_tracking=True,
+            enable_adaptive_Q=True,
             lambda_max=3.0,
             rho=0.95,
             temperature=data['temperature']
@@ -655,7 +592,7 @@ def save_results_csv(all_results: Dict, save_dir: Path):
                     gate_mark = '-'
                     st_mark = '-'
                     adapt_mark = 'Aggressive Q'
-                elif model_type == 'AEKF_GateST':
+                elif model_type == 'GST-AEKF':
                     gate_mark = '✓'
                     st_mark = '✓'
                     adapt_mark = 'Aggressive Q'
@@ -711,7 +648,7 @@ def generate_markdown_report(all_results: Dict, contributions_dict: Dict, save_d
             gate = '-'
             st = '-'
             adapt = 'Aggressive Q'
-        elif model_type == 'AEKF_GateST':
+        elif model_type == 'GST-AEKF':
             gate = '✓'
             st = '✓'
             adapt = 'Aggressive Q'
@@ -839,8 +776,8 @@ def main():
                 model_type = config.get('model_type', 'GSTIAEKF')
                 if model_type == 'AEKF':
                     print(f"    模型类型=AEKF, adaptive_Q={config.get('adaptive_Q', True)}")
-                elif model_type == 'AEKF_GateST':
-                    print(f"    模型类型=AEKF+Gate+ST (激进Q + 门控 + 强跟踪)")
+                elif model_type == 'GST-AEKF':
+                    print(f"    模型类型=GST-AEKF (激进Q + 门控 + 强跟踪)")
                 else:
                     print(f"    门控={config.get('enable_nis_gate', False)}, "
                           f"强跟踪={config.get('enable_strong_tracking', False)}, "
